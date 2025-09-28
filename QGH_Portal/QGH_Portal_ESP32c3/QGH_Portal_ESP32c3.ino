@@ -86,9 +86,9 @@ void setup() {
   delay(100); // Дати час Serial піднятися
 
   // Ініціалізація UART1 для прийому даних від Arduino Nano
-  // Arduino Nano передає дані по своєму TX, ESP32-C3 приймає на RX_PIN (6)
-  Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN);
-  delay(100);
+  // Arduino Nano передає дані по своєму TX, ESP32-C3 приймає на RX_PIN (2)
+  // TX можна залишити -1, якщо ESP32 не передає дані назад
+  Serial1.begin(115200, SERIAL_8N1, RX_PIN, -1);
 
   FastLED.addLeds<LED_TYPE, LED_PIN_PORTAL1, COLOR_ORDER>(leds1, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.addLeds<LED_TYPE, LED_PIN_PORTAL2, COLOR_ORDER>(leds2, NUM_LEDS).setCorrection(TypicalLEDStrip);
@@ -280,7 +280,7 @@ void loop() {
   unsigned long now = millis();
 
   // Прийом даних по UART1 (ESP32-C3 приймає дані від Arduino Nano)
-  // Arduino передає дані по TX, ESP приймає їх на RX_PIN (6)
+  // Arduino передає дані по TX, ESP приймає їх на RX_PIN (2)
   static String inputLine = "";
   while (Serial1.available()) {
     char c = Serial1.read();
