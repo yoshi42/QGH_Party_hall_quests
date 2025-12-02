@@ -9,18 +9,20 @@
 #define SIG 1   // ADC1_CH5 (GPIO5)
 
 // --- DFPlayer Mini ---
-#define DFPLAYER_RX 9   // RX ESP32-C3 ← TX DFPlayer
-#define DFPLAYER_TX 10  // TX ESP32-C3 → RX DFPlayer
+#define DFPLAYER_RX 20   // RX ESP32-C3 ← TX DFPlayer
+#define DFPLAYER_TX 21  // TX ESP32-C3 → RX DFPlayer
 
 HardwareSerial dfSerial(1);  
 DFRobotDFPlayerMini dfPlayer;
 
 // --- Налаштування ---
 const int NUM_CHANNELS = 16;      // скільки датчиків (0..16)
-const int THRESHOLD = 2000;       // поріг спрацювання датчика
+const int THRESHOLD = 3000;       // поріг спрацювання датчика
 const int NUM_SOUNDS = 5;         // кількість файлів у кожній папці (01, 02, ...)
 
 int lastState[16];  // попередні стани каналів (0/1)
+int currentState[16];
+int nextSound[16] = {0};  // наступний трек для кожного каналу (0..NUM_SOUNDS-1)
 
 // --- Функція вибору каналу мультиплексора ---
 void selectChannel(int channel) {
@@ -28,6 +30,17 @@ void selectChannel(int channel) {
   digitalWrite(S1, (channel >> 1) & 0x01);
   digitalWrite(S2, (channel >> 2) & 0x01);
   digitalWrite(S3, (channel >> 3) & 0x01);
+}
+
+int readChannel(int ch) {
+  selectChannel(ch);
+  delayMicroseconds(200);
+  long s = 0;
+  for (int i = 0; i < 10; i++) {
+    s += analogRead(SIG);
+    delayMicroseconds(50);
+  }
+  return s / 10;
 }
 
 void setup() {
@@ -41,6 +54,7 @@ void setup() {
   pinMode(S3, OUTPUT);
 
   for (int i = 0; i < 16; i++) lastState[i] = 0;
+  for (int i = 0; i < 16; i++) nextSound[i] = 0;
 
   // --- DFPlayer ---
   dfSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
@@ -51,31 +65,25 @@ void setup() {
   Serial.println("✅ DFPlayer Mini online.");
   dfPlayer.volume(10);  // Гучність (0-30)
   delay(500);
-  dfPlayer.playFolder(1, 1);
 }
 
 void loop() {
   for (int ch = 0; ch < NUM_CHANNELS; ch++) {
-    selectChannel(ch);
-    delayMicroseconds(50); // невелика затримка для стабілізації
+    int value = readChannel(ch);
+    currentState[ch] = (value < THRESHOLD) ? 0 : 1;
 
-    int value = analogRead(SIG);
-    int currentState = (value > THRESHOLD) ? 1 : 0;
+    Serial.printf("CH%02d: %4d → %d\n", ch, value, currentState[ch]);
 
-    // Лог у порт
-    Serial.printf("CH%02d: %4d -> %d\n", ch, value, currentState);
-
-    // Якщо з'явився магніт (перехід 0 → 1)
-    if (currentState == 1 && lastState[ch] == 0) {
-      int sound = random(1, NUM_SOUNDS + 1); // від 1 до NUM_SOUNDS
-      Serial.printf("▶️  Sensor %d triggered → Play folder %02d, file %02d\n", ch, ch + 1, sound);
-
-      // Відтворення з папки (папки мають бути 01, 02, 03... на SD)
+    if (currentState[ch] == 1 && lastState[ch] == 0) {
+      int sound = nextSound[ch] + 1;   // 1..NUM_SOUNDS
+      Serial.printf("▶️ TRIGGER: sensor %d → play %02d/%02d (seq)\n",
+                    ch, ch + 1, sound);
       dfPlayer.playFolder(ch + 1, sound);
+      nextSound[ch] = (nextSound[ch] + 1) % NUM_SOUNDS;  // інкремент з циклом
+      delay(300);
     }
 
-    lastState[ch] = currentState;
+    lastState[ch] = currentState[ch];
   }
-
-  delay(200); // цикл перевірки ~5 разів/сек
+  delay(150);
 }
