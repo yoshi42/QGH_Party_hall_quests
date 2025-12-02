@@ -16,6 +16,14 @@ CRGB leds1[GROUP_LEDS];
 CRGB leds2[GROUP_LEDS];
 CRGB leds3[GROUP_LEDS];
 
+CRGB scenarioColors[12] = {
+  CRGB::Blue, CRGB::Green, CRGB::Red, CRGB::Purple,
+  CRGB::Yellow, CRGB::White, CRGB(0,200,200),
+  CRGB(200,0,200), CRGB(255,128,0), CRGB(0,150,255),
+  CRGB(255,0,100), CRGB(0,255,150)
+};
+CRGB currentColor = CRGB::Blue;
+
 CRGB* getGroup(int seg, int &localIndex){
   if(seg < 3){ localIndex = seg * SEGMENT_LEDS; return leds0; }
   else if(seg < 6){ localIndex = (seg-3)*SEGMENT_LEDS; return leds1; }
@@ -44,7 +52,7 @@ void clearAll(){
 
 // ================= BUTTON CONFIG =================
 #define BUTTON_COUNT 12
-uint8_t buttonPins[12] = {A0,A1,7,4,9,10,11,3,5,8,6,12};
+uint8_t buttonPins[12] = {A0,A1,7,4,9,10,11,3,5,8,A5,12};
 uint8_t buttonToSegment[12] = {0,1,2,3,4,5,6,7,8,9,10,11};
 
 unsigned long lastPress[12];
@@ -52,16 +60,18 @@ bool lastState[12];
 #define DEBOUNCE_MS 400
 
 int readButton(){
-  for(int i=0;i<12;i++){
-    bool nowState = (digitalRead(buttonPins[i]) == LOW);
-    unsigned long t = millis();
+  // Robust multi-sample read + debug output to diagnose phantom triggers
+  const uint8_t SAMPLES = 3;          // number of samples per check
+  const uint16_t SAMPLE_DELAY_MS = 3; // ms between samples
 
-    if(nowState != lastState[i]){
-      if(t - lastPress[i] > DEBOUNCE_MS){
-        lastPress[i] = t;
-        lastState[i] = nowState;
-        if(nowState) return i;
-      }
+  for(int i=0;i<12;i++){
+    uint8_t lowCount = 0;
+    for(uint8_t s=0; s<SAMPLES; s++){
+      if(digitalRead(buttonPins[i]) == LOW) lowCount++;
+      delay(SAMPLE_DELAY_MS);
+    }
+    if(lowCount >= 2){ // accept if 2/3 samples are LOW
+      return i;
     }
   }
   return -1;
@@ -111,7 +121,7 @@ uint8_t stepIndex = 0;
 
 // ==== blink one segment ====
 void blinkSegment(int seg){
-  lightSegment(seg, CRGB::Blue);
+  lightSegment(seg, currentColor);
   delay(500);
   clearSegment(seg);
   delay(500);
@@ -122,9 +132,11 @@ void restartPuzzle(){
   clearAll();
   stepIndex = 0;
 
+  currentColor = scenarioColors[puzzleIndex];
+
   uint8_t first = pgm_read_byte(&patterns[puzzleIndex][0]);
   int seg = buttonToSegment[first];
-  lightSegment(seg, CRGB::Blue);
+  lightSegment(seg, currentColor);
 }
 
 // ==== correct press ====
@@ -132,7 +144,7 @@ void handleCorrect(int seg){
   // light all correct ones so far
   for(int i=0;i<=stepIndex;i++){
     int s = buttonToSegment[ pgm_read_byte(&patterns[puzzleIndex][i]) ];
-    lightSegment(s, CRGB::Blue);
+    lightSegment(s, currentColor);
     delayMicroseconds(1500);
   }
 
@@ -141,10 +153,10 @@ void handleCorrect(int seg){
   if(stepIndex >= 12){
     // success: blink all, advance scenario
     for(int k=0;k<3;k++){
-      fill_solid(leds0, GROUP_LEDS, CRGB::Blue);
-      fill_solid(leds1, GROUP_LEDS, CRGB::Blue);
-      fill_solid(leds2, GROUP_LEDS, CRGB::Blue);
-      fill_solid(leds3, GROUP_LEDS, CRGB::Blue);
+      fill_solid(leds0, GROUP_LEDS, currentColor);
+      fill_solid(leds1, GROUP_LEDS, currentColor);
+      fill_solid(leds2, GROUP_LEDS, currentColor);
+      fill_solid(leds3, GROUP_LEDS, currentColor);
       FastLED.show();
       delay(250);
       clearAll();
@@ -159,7 +171,7 @@ void handleCorrect(int seg){
 // ==== wrong press ====
 void handleWrong(int seg){
   for(int k=0;k<3;k++){
-    lightSegment(seg, CRGB::Blue);
+    lightSegment(seg, currentColor);
     delay(250);
     clearSegment(seg);
     delay(250);
@@ -178,7 +190,7 @@ void processPuzzle(){
       lastBlink = t;
       static bool visible = false;
       visible = !visible;
-      if(visible) lightSegment(segFirst, CRGB::Blue);
+      if(visible) lightSegment(segFirst, currentColor);
       else clearSegment(segFirst);
     }
   }
@@ -186,7 +198,13 @@ void processPuzzle(){
   int b = readButton();
   if(b < 0) return;
 
+  // ignore already-correct earlier presses
+  for(int i=0;i<stepIndex;i++){
+    if(b == pgm_read_byte(&patterns[puzzleIndex][i])) return;
+  }
+
   uint8_t expected = pgm_read_byte(&patterns[puzzleIndex][stepIndex]);
+
   if(b == expected){
     handleCorrect(buttonToSegment[b]);
   } else {
