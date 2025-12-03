@@ -18,7 +18,7 @@ CRGB leds3[GROUP_LEDS];
 
 CRGB scenarioColors[12] = {
   CRGB::Blue, CRGB::Green, CRGB::Red, CRGB::Purple,
-  CRGB::Yellow, CRGB::White, CRGB(0,200,200),
+  CRGB::Yellow, CRGB(128,128,0), CRGB(0,200,200),
   CRGB(200,0,200), CRGB(255,128,0), CRGB(0,150,255),
   CRGB(255,0,100), CRGB(0,255,150)
 };
