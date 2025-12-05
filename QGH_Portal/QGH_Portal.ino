@@ -10,7 +10,7 @@
 - Формування ОДНОГО пакета:
   E1:x E2:x E3:x E4:x BTN:x HC:{...}
 
-Ця прошивка однакова і для MASTER, і для SLAVE!
+Ця прошивка однакова і для MASTER і для SLAVE!
 =============================================================
 */
 
@@ -20,8 +20,8 @@
 // -----------------------------------------------------------
 // HC-12 → Nano
 // -----------------------------------------------------------
-#define HC_RX 2
-#define HC_TX 3
+#define HC_RX A0   // digital pin 14 — stable RX for SoftwareSerial
+#define HC_TX A1   // digital pin 15 — stable TX for SoftwareSerial
 SoftwareSerial HC12(HC_RX, HC_TX);
 
 // -----------------------------------------------------------
@@ -135,17 +135,6 @@ void setup() {
   Serial.begin(115200);
   HC12.begin(9600);
 
-  // --- STARTUP ENCODER EMULATION (simulate blue channel changes) ---
-  val[0] = 0;
-  val[1] = 0;
-  val[3] = 0;
-  for (int i = 0; i < 10; i++) {
-    // Toggle encoder 3 value between 0 and 255
-    val[2] = (i % 2 == 0) ? 0 : 255;
-    sendPacket(0, "");
-    delay(500);
-  }
-
   for (int i=0; i<4; i++) {
     pinMode(enc[i].A, INPUT_PULLUP);
     pinMode(enc[i].B, INPUT_PULLUP);
@@ -158,7 +147,7 @@ void setup() {
 // -----------------------------------------------------------
 // main loop
 // -----------------------------------------------------------
-void loop() {
+void loop_work() {
 
   // Read encoders
   for (int i=0; i<4; i++) updateEncoder(i);
@@ -173,5 +162,18 @@ void loop() {
   if (millis() - lastSend > SEND_INTERVAL || btn == 1 || hc.length() > 0) {
     lastSend = millis();
     sendPacket(btn, hc);
+  }
+}
+
+void loop_test_HC_nano1() {
+  HC12.println("PING_FROM_1");
+  delay(500);
+}
+
+void loop() {
+  if (HC12.available()) {
+    String s = HC12.readStringUntil('\n');
+    Serial.print("HC12 RX: ");
+    Serial.println(s);
   }
 }
