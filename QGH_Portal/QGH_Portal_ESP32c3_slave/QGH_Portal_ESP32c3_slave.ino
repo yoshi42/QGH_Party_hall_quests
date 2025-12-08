@@ -1,5 +1,6 @@
 #include <FastLED.h>
 #include <HardwareSerial.h>
+
 HardwareSerial NanoSerial(1);
 
 // ---------- LED CONFIG ----------
@@ -46,10 +47,11 @@ void setup() {
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(DEFAULT_BRIGHTNESS);
 
-  NanoSerial.begin(115200, SERIAL_8N1, 4, -1);
+  NanoSerial.begin(115200, SERIAL_8N1, 4, 5);
   Serial.println("Slave: listening on UART1 RX=4");
+
   // --- DEBUG STARTUP BLINK (RED, 5 seconds) ---
-  for (int i = 0; i < 10; i++) {          // 25 cycles × 200 ms = 5 seconds
+  for (int i = 0; i < 10; i++) {
     fill_solid(leds, NUM_LEDS, CRGB(255, 0, 0));
     FastLED.show();
     delay(100);
@@ -81,9 +83,10 @@ void parseLine(String &msg) {
     return;
   }
 
-  // NANO ENCODER DATA (incremental mapping)
+  // ENCODER DATA
   if (msg.startsWith("E1:")) {
     int idx;
+
     // E1
     idx = msg.indexOf("E1:");
     if (idx >= 0) {
@@ -92,6 +95,7 @@ void parseLine(String &msg) {
       else if (val < rawEnc[0]) ctrlEnc[0] -= ENCODER_STEP;
       rawEnc[0] = val;
     }
+
     // E2
     idx = msg.indexOf("E2:");
     if (idx >= 0) {
@@ -100,6 +104,7 @@ void parseLine(String &msg) {
       else if (val < rawEnc[1]) ctrlEnc[1] -= ENCODER_STEP;
       rawEnc[1] = val;
     }
+
     // E3
     idx = msg.indexOf("E3:");
     if (idx >= 0) {
@@ -108,6 +113,7 @@ void parseLine(String &msg) {
       else if (val < rawEnc[2]) ctrlEnc[2] -= ENCODER_STEP;
       rawEnc[2] = val;
     }
+
     // E4
     idx = msg.indexOf("E4:");
     if (idx >= 0) {
@@ -117,13 +123,12 @@ void parseLine(String &msg) {
       rawEnc[3] = val;
     }
 
-    // clamp control values to 0..255
+    // clamp 0..255
     for (int i = 0; i < 4; i++) {
       if (ctrlEnc[i] < 0) ctrlEnc[i] = 0;
       if (ctrlEnc[i] > 255) ctrlEnc[i] = 255;
     }
 
-    // mirror to e1..e4 for debugging
     e1 = ctrlEnc[0];
     e2 = ctrlEnc[1];
     e3 = ctrlEnc[2];
@@ -186,19 +191,16 @@ void runGame() {
   if (speed < 0) speed = 0;
   if (speed > 20) speed = 20;
 
-  // stable interval calculation that never goes negative
   unsigned long now = millis();
-  unsigned long interval = 40 - (speed * 2);  // speed=0 → interval=40
-  if (interval < 5) interval = 5;             // clamp to avoid freeze
+  unsigned long interval = 40 - (speed * 2);
+  if (interval < 5) interval = 5;
 
-if (speed == 0) {
-    // freeze — не рухаємо pos
-} else {
+  if (speed > 0) {
     if (now - lastMove >= interval) {
-        lastMove = now;
-        pos = (pos + 1) % NUM_LEDS;
+      lastMove = now;
+      pos = (pos + 1) % NUM_LEDS;
     }
-}
+  }
 
   fill_solid(leds, NUM_LEDS, CRGB::Black);
 
@@ -237,7 +239,7 @@ void runWinEffect() {
 // ------------------------------------------------------------
 void loop() {
 
-  // READ HC-12
+  // READ UART (Nano / HC12 via Nano)
   while (NanoSerial.available()) {
     char h = NanoSerial.read();
     if (h == '\n') {
@@ -254,6 +256,7 @@ void loop() {
     isGameMode = !isGameMode;
     Serial.print("Mode changed: isGameMode=");
     Serial.println(isGameMode);
+
     if (isGameMode) {
       R = random(0,256);
       G = random(0,256);

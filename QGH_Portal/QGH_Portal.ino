@@ -147,7 +147,7 @@ void setup() {
 // -----------------------------------------------------------
 // main loop
 // -----------------------------------------------------------
-void loop_work() {
+void loop() {
 
   // Read encoders
   for (int i=0; i<4; i++) updateEncoder(i);
@@ -155,8 +155,22 @@ void loop_work() {
   // Button
   int btn = readButton();
 
+  // --- HC-12 periodic ping for debugging ---
+  static unsigned long lastPing = 0;
+  if (millis() - lastPing > 1000) {
+    lastPing = millis();
+    HC12.println("PING_FROM_NANO");
+  }
+
   // HC-12 receive
   String hc = readHC12();
+
+  // --- read from ESP (via hardware Serial RX0) ---
+  while (Serial.available()) {
+    char c = Serial.read();
+    // forward every byte to HC12 so Master/Slave can exchange packets
+    HC12.write(c);
+  }
 
   // Send data
   if (millis() - lastSend > SEND_INTERVAL || btn == 1 || hc.length() > 0) {
@@ -170,7 +184,7 @@ void loop_test_HC_nano1() {
   delay(500);
 }
 
-void loop() {
+void loop_test_HC_nano2() {
   if (HC12.available()) {
     String s = HC12.readStringUntil('\n');
     Serial.print("HC12 RX: ");

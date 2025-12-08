@@ -9,7 +9,7 @@
 #define COLOR_ORDER GRB
 
 #define RX_PIN 4
-#define TX_PIN -1
+#define TX_PIN 5
 
 #define ENCODER_STEP 10
 
@@ -20,7 +20,7 @@ const int COLOR_TOLERANCE = 100;
 CRGB leds1[NUM_LEDS];
 
 HardwareSerial NanoSerial(1);
-HardwareSerial HC12(2);
+// HardwareSerial HC12(2);  // Removed as per instructions
 
 // Slave state received from SLAVE via HC12 / direct cable
 int slavePos = 0;
@@ -91,21 +91,65 @@ void parseUARTData(String &line) {
 }
 
 // ---------------- PARSE HC12 FROM SLAVE ----------------
+// ---------------- PARSE HC12 FROM SLAVE ----------------
 void parseHC12(String &msg) {
-  if (!msg.startsWith("{M")) return;
-
-  int idx;
-  idx = msg.indexOf("WIN:");
-  if (idx > 0) {
-    int val = msg.substring(idx + 4).toInt();
-    if (val == 1) {
-      statePortal1 = WIN_EFFECT;
-      Serial.println("MASTER: WIN effect triggered by SLAVE");
-    }
-  }
-
   Serial.print("HC12 RX: ");
   Serial.println(msg);
+
+  // ---- WIN packet from SLAVE ----
+  if (msg.startsWith("{M")) {
+    int idx = msg.indexOf("WIN:");
+    if (idx > 0) {
+      int val = msg.substring(idx + 4).toInt();
+      if (val == 1) {
+        statePortal1 = WIN_EFFECT;
+        Serial.println("MASTER: WIN effect triggered by SLAVE");
+      }
+    }
+    return;
+  }
+
+  // ---- SLAVE state packet ----
+  if (msg.startsWith("{S")) {
+
+    int idx;
+
+    idx = msg.indexOf("POS:");
+    if (idx > 0) {
+      slavePos = msg.substring(idx + 4).toInt();
+    }
+
+    idx = msg.indexOf("R:");
+    if (idx > 0) {
+      slaveR = msg.substring(idx + 2).toInt();
+    }
+
+    idx = msg.indexOf("G:");
+    if (idx > 0) {
+      slaveG = msg.substring(idx + 2).toInt();
+    }
+
+    idx = msg.indexOf("B:");
+    if (idx > 0) {
+      slaveB = msg.substring(idx + 2).toInt();
+    }
+
+    idx = msg.indexOf("SPD:");
+    if (idx > 0) {
+      slaveSpeed = msg.substring(idx + 4).toInt();
+    }
+
+    Serial.print("MASTER updated SLAVE state: POS=");
+    Serial.print(slavePos);
+    Serial.print(" RGB=");
+    Serial.print(slaveR); Serial.print(",");
+    Serial.print(slaveG); Serial.print(",");
+    Serial.print(slaveB);
+    Serial.print(" SPD=");
+    Serial.println(slaveSpeed);
+
+    return;
+  }
 }
 
 // ---------------- SEND DATA TO SLAVE ----------------
@@ -119,7 +163,7 @@ void sendToSlave() {
   out += " SPD:" + String(encoders[3]);
   out += "}";
 
-  HC12.println(out);
+  NanoSerial.println(out);
   Serial.print("HC12 TX: ");
   Serial.println(out);
 }
@@ -184,8 +228,10 @@ bool positionsMatch() {
 // ---------------- SETUP ----------------
 void setup() {
   Serial.begin(115200);
+  delay(500);
+  Serial.setTxTimeoutMs(0); // необов’язково, але інколи стабілізує
+  
   NanoSerial.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN);
-  HC12.begin(9600, SERIAL_8N1, 6, 5);
 
   FastLED.addLeds<LED_TYPE, LED_PIN_PORTAL1, COLOR_ORDER>(leds1, NUM_LEDS);
   FastLED.setBrightness(BRIGHTNESS);
@@ -206,27 +252,25 @@ void setup() {
 // ---------------- LOOP ----------------
 void loop() {
 
-  // --------- read from Nano ---------
-  static String inputLine = "";
+  // --------- unified UART reader (Nano + HC12 packets) ---------
+  static String line = "";
+
   while (NanoSerial.available()) {
     char c = NanoSerial.read();
-    if (c == '\n') {
-      parseUARTData(inputLine);
-      inputLine = "";
-    } else if (c!='\r') {
-      inputLine += c;
-    }
-  }
 
-  // --------- read from SLAVE via HC12 ---------
-  static String hcLine = "";
-  while (HC12.available()) {
-    char h = HC12.read();
-    if (h == '\n') {
-      parseHC12(hcLine);
-      hcLine = "";
-    } else if (h != '\r') {
-      hcLine += h;
+    if (c == '\n') {
+
+      if (line.startsWith("E") || line.startsWith("BTN")) {
+        parseUARTData(line);
+      }
+      else if (line.startsWith("{")) {
+        parseHC12(line);
+      }
+
+      line = "";
+    }
+    else if (c != '\r') {
+      line += c;
     }
   }
 
