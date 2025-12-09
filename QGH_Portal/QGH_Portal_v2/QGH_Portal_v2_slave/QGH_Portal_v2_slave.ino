@@ -107,7 +107,7 @@ void sendStateToMaster() {
   int B = encs[2].value;
   int speed = map(encs[3].value, 0, 255, 0, 20);
 
-  if (now - lastTx < 100) return;   // fixed 100ms TX interval
+  if (now - lastTx < 250) return;   // fixed 100ms TX interval
   lastTx = now;
 
     String out = "{S ";

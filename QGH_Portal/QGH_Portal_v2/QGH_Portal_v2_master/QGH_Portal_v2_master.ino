@@ -49,6 +49,9 @@ const uint8_t HUE_TOL = 20;
 
 unsigned long lastDebug = 0;   // periodic debug timer
 
+static int winRepeats = 0;
+static unsigned long lastWinSend = 0;
+
 // -----------------------------------------------
 void setup() {
   Serial.begin(115200);
@@ -104,7 +107,7 @@ void readEncoders() {
 }
 
 // -----------------------------------------------
-void parseSlavePacket(String s) {
+void parseSlavePacket_old(String s) {
   // Очікуємо компактний формат:
   // {S POS R G B SPD}
 
@@ -124,6 +127,47 @@ void parseSlavePacket(String s) {
     sValid = true;
     lastFresh = millis();
   }
+  else {
+    sValid = false;
+  }
+}
+
+void parseSlavePacket(String s) {
+
+  // FILTER 1 — must start and end correctly
+  if (!s.startsWith("{S ") || !s.endsWith("}")) {
+    return; // reject corrupted packet
+  }
+
+  // FILTER 2 — reasonable packet length
+  if (s.length() < 10 || s.length() > 35) {
+    return;
+  }
+
+  // compact packet: {S POS R G B SPD}
+  int pos_, r_, g_, b_, spd_;
+  int matched = sscanf(s.c_str(), "{S %d %d %d %d %d}", 
+                       &pos_, &r_, &g_, &b_, &spd_);
+
+  // FILTER 3 — must match exactly 5 ints
+  if (matched != 5) return;
+
+  // FILTER 4 — sanity ranges
+  if (pos_ < 0 || pos_ >= NUM_LEDS) return;
+  if (r_ < 0 || r_ > 255) return;
+  if (g_ < 0 || g_ > 255) return;
+  if (b_ < 0 || b_ > 255) return;
+  if (spd_ < 0 || spd_ > 255) return;
+
+  // Only now accept the packet:
+  sPos   = pos_;
+  sR     = r_;
+  sG     = g_;
+  sB     = b_;
+  sSpeed = spd_;
+
+  sValid = true;
+  lastFresh = millis();
 }
 
 // -----------------------------------------------
@@ -136,7 +180,7 @@ bool checkWin() {
 if (!sValid) return false;
 
 // if no new data from slave in 120 ms — ignore it
-if (millis() - lastFresh > 120) return false;
+if (millis() - lastFresh > 400) return false;
 
 
   // current raw RGB from master encoders
@@ -168,10 +212,7 @@ if (millis() - lastFresh > 120) return false;
     if (millis() - stableSince >= 500) {
       stableSince = 0;
       // resend win command a few times for reliability
-      for (int i = 0; i < 3; i++) {
-          sendWinToSlave();
-          delay(5);
-      }
+      winRepeats = 3;
       return true;
     }
     return false;
@@ -230,25 +271,53 @@ void runWin() {
 
 // -----------------------------------------------
 void loop() {
-
-  // ---- HC12 continuous receive (robust CR/LF handling) ----
+  // ---- HC12 receive — more stable reading with filtering ----
   static String rxBuf = "";
+
   while (HC12.available()) {
-    char c = HC12.read();
+      char c = HC12.read();
 
-    if (c == '\r') {
-      // ignore CR completely
-      continue;
-    }
-
-    if (c == '\n') {
-      if (rxBuf.length() > 0) {
-        parseSlavePacket(rxBuf);
+      // Flush noise: skip chars outside printable ASCII except allowed special chars
+      if ( (c < 32 || c > 126) && c != '{' && c != '}' && c != ' ' && !(c >= '0' && c <= '9') ) {
+        continue;
       }
-      rxBuf = "";
-    } else {
-      rxBuf += c;
-    }
+
+      // Reset buffer if corrupted sequence appears (if buffer not empty and c not valid start/end char)
+      if (rxBuf.length() > 0) {
+        if (c != '{' && c != '}' && c != ' ' && !(c >= '0' && c <= '9')) {
+          rxBuf = "";
+          continue;
+        }
+      }
+
+      if (c == '\r') continue;
+
+      if (c == '\n') {
+          if (rxBuf.length() > 0) {
+            // Only accept packets starting with "{S" and ending with "}"
+            if (rxBuf.startsWith("{S") && rxBuf.endsWith("}")) {
+              Serial.print("HC12 RAW: ");
+              Serial.println(rxBuf);
+              parseSlavePacket(rxBuf);
+            }
+          }
+          rxBuf = "";
+      } else {
+          // Accept only printable ASCII chars from space(32) to tilde(126)
+          if (c >= 32 && c <= 126) {
+            rxBuf += c;
+            if (rxBuf.length() > 50) rxBuf = "";
+          } else {
+            // Non printable char, reset buffer
+            rxBuf = "";
+          }
+      }
+  }
+
+  if (winRepeats > 0 && millis() - lastWinSend >= 10) {
+    sendWinToSlave();
+    winRepeats--;
+    lastWinSend = millis();
   }
 
 
@@ -278,7 +347,7 @@ void loop() {
   }
   lastBtn = btn;
 
-  // -------- periodic debug print (non-blocking) ----------
+  /*/ -------- periodic debug print (non-blocking) ----------
   if (millis() - lastDebug > 300) {
     lastDebug = millis();
     Serial.print("MODE=");
@@ -297,7 +366,7 @@ void loop() {
     Serial.print(sB);
     Serial.print("   SLAVE SPD=");
     Serial.println(sSpeed);
-  }
+  }//*/
 
   // WIN CHECK
   if (modeGame && checkWin() && !win) {
@@ -314,10 +383,11 @@ void loop() {
   if (!modeGame) runPassive();
   else runGame();
 
-  static unsigned long lastFrame = 0;
-  unsigned long nowFrame = millis();
-  if (nowFrame - lastFrame >= 30) {   // 30ms = ~33 FPS, stable for SoftwareSerial
-      lastFrame = nowFrame;
-      FastLED.show();
-  }
+// update LEDs much more often — prevents packet loss
+static unsigned long lastFrame = 0;
+unsigned long nowFrame = millis();
+if (nowFrame - lastFrame >= 6) {  // ~160 FPS, but very short blocking
+    lastFrame = nowFrame;
+    FastLED.show();
+}
 }
