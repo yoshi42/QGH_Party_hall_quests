@@ -31,7 +31,9 @@ unsigned long lastMove = 0;
 // ---------- WIN ----------
 bool win = false;
 unsigned long winStart = 0;
-const int WIN_DURATION = 5000;
+const int WIN_DURATION = 60000;
+
+unsigned long lastDebug = 0;
 
 // -----------------------------------------------
 void setup() {
@@ -85,7 +87,7 @@ void readEncoders() {
       delta = -1;
 
     // Sensitivity (set to moderate, not excessive)
-    encs[i].value += delta * 4;
+    encs[i].value += delta * 10;   // increased sensitivity
 
     // Clamp
     if (encs[i].value < 0) encs[i].value = 0;
@@ -97,32 +99,37 @@ void readEncoders() {
 
 // -----------------------------------------------
 void sendStateToMaster() {
+  static unsigned long lastTx = 0;
+  unsigned long now = millis();
+
   int R = encs[0].value;
   int G = encs[1].value;
   int B = encs[2].value;
   int speed = map(encs[3].value, 0, 255, 0, 20);
 
-  String out = "{S POS:" + String(pos);
-  out += " R:" + String(R);
-  out += " G:" + String(G);
-  out += " B:" + String(B);
-  out += " SPD:" + String(speed);
-  out += "}";
+  if (now - lastTx < 100) return;   // fixed 100ms TX interval
+  lastTx = now;
 
-  HC12.println(out);
+    String out = "{S ";
+    out += pos;
+    out += " ";
+    out += R;
+    out += " ";
+    out += G;
+    out += " ";
+    out += B;
+    out += " ";
+    out += speed;
+    out += "}";
+
+    HC12.println(out);
 }
 
 // -----------------------------------------------
 void parseMasterPacket(String s) {
-  if (!s.startsWith("{M")) return;
-
-  int idx = s.indexOf("WIN:");
-  if (idx > 0) {
-    int flag = s.substring(idx + 4).toInt();
-    if (flag == 1) {
-      win = true;
-      winStart = millis();
-    }
+  if (s.indexOf("WIN:1") > 0) {
+    win = true;
+    winStart = millis();
   }
 }
 
@@ -136,12 +143,12 @@ void runPassive() {
 // -----------------------------------------------
 void runGame() {
   int raw = encs[3].value;
-  int spd = map(raw, 0, 255, 1, 30);   // smoother and always >0
+  int spd = map(raw, 0, 255, 1, 45);
   unsigned long now = millis();
-  unsigned long interval = 40 - spd;   // faster response curve
-  if (interval < 5) interval = 5;       // minimum interval ensures movement
+  unsigned long interval = 50 - spd;
+  if (interval < 3) interval = 3;
 
-  if (now - lastMove >= interval && spd>0) {
+  if (now - lastMove >= interval && spd > 0) {
     pos = (pos + 1) % NUM_LEDS;
     lastMove = now;
   }
@@ -156,14 +163,11 @@ void runGame() {
     uint8_t fade = 255 - (i*25);
     leds[p] = CRGB(R, G, B).nscale8(fade);
   }
-  FastLED.setBrightness(175);  // fixed brightness in game mode
+
+  FastLED.setBrightness(175);
   FastLED.show();
 
-  static unsigned long lastTx = 0;
-  if (millis() - lastTx > 50) {   // send max 20 times per second
-    sendStateToMaster();
-    lastTx = millis();
-  }
+  sendStateToMaster();
 }
 
 // -----------------------------------------------
@@ -174,8 +178,13 @@ void runWin() {
     return;
   }
 
-  uint8_t hue = (now / 5) & 255;
-  fill_solid(leds, NUM_LEDS, CHSV(hue, 255, 255));
+  // Match MASTER win effect: smooth rainbow sweep
+  uint8_t hueBase = (now / 6) & 255;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CHSV(hueBase + (i >> 2), 255, 255);
+  }
+
   FastLED.show();
 }
 
@@ -187,15 +196,21 @@ void loop() {
   Serial.print(" SPDraw="); Serial.print(encs[3].value);
   Serial.print(" SPDmap="); Serial.println(map(encs[3].value, 0, 255, 0, 20));
 */
-  readEncoders();
+  // ---- High-frequency encoder polling (every 2 ms) ----
+  static unsigned long lastEnc = 0;
+  unsigned long encNow = millis();
+  if (encNow - lastEnc >= 2) {
+    lastEnc = encNow;
+    readEncoders();
+  }
 
   // BUTTON
   bool btn = !digitalRead(BTN_PIN);
   if (btn && !lastBtn) {
+    win = false;                 // allow mode switch during WIN
     modeGame = !modeGame;
     pos = random(NUM_LEDS);
 
-    // new random color on every mode switch
     encs[0].value = random(50, 200);
     encs[1].value = random(50, 200);
     encs[2].value = random(50, 200);
@@ -203,10 +218,34 @@ void loop() {
   lastBtn = btn;
 
   // RECEIVE MASTER PACKETS
-  while (HC12.available()) {
-    String s = HC12.readStringUntil('\n');
-    parseMasterPacket(s);
+// ---- NON-BLOCKING HC12 READER ----
+static String hcBuf = "";
+while (HC12.available()) {
+  char c = HC12.read();
+  if (c == '\n') {
+    parseMasterPacket(hcBuf);
+    hcBuf = "";
+  } else {
+    hcBuf += c;
   }
+}
+
+// ---- PERIODIC DEBUG (every 300 ms) ----
+static unsigned long dbgT = 0;
+if (millis() - dbgT >= 300) {
+  dbgT = millis();
+  Serial.print("SLAVE MODE=");
+  Serial.print(modeGame ? "GAME" : "PASSIVE");
+  Serial.print(" POS=");
+  Serial.print(pos);
+  Serial.print(" ENC R/G/B/S = ");
+  Serial.print(encs[0].value); Serial.print("/");
+  Serial.print(encs[1].value); Serial.print("/");
+  Serial.print(encs[2].value); Serial.print("/");
+  Serial.print(encs[3].value);
+  Serial.print("  WIN=");
+  Serial.println(win ? 1 : 0);
+}
 
   // WIN MODE PRIORITY
   if (win) {
