@@ -1,5 +1,6 @@
 #include <FastLED.h>
-#include <SoftwareSerial.h>
+
+#define HC12 Serial
 
 // ---------------- LED CONFIG -------------------
 #define LED_PIN 3
@@ -19,17 +20,17 @@ Enc encs[4] = {
 bool modeGame = false;
 bool lastBtn = false;
 
-// ---------- HC12 ----------------
-#define HC_RX A0
-#define HC_TX A1
-SoftwareSerial HC12(HC_RX, HC_TX);
-
 // SLAVE incoming state
 int sPos = 0;
 int sR = 0, sG = 0, sB = 0;
 int sSpeed = 0;
 bool sValid = false;
 unsigned long lastFresh = 0;
+
+
+String lastRawPacket = "";
+
+#define RX_BUF_MAX 50
 
 // ----------- GAME -------------
 int pos = 0;
@@ -54,8 +55,7 @@ static unsigned long lastWinSend = 0;
 
 // -----------------------------------------------
 void setup() {
-  Serial.begin(115200);
-  HC12.begin(9600);
+  Serial.begin(9600);
 
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
   FastLED.setBrightness(180);
@@ -107,125 +107,77 @@ void readEncoders() {
 }
 
 // -----------------------------------------------
-void parseSlavePacket_old(String s) {
-  // Очікуємо компактний формат:
-  // {S POS R G B SPD}
-
-  if (!s.startsWith("{S")) return;
-
-  int pos_, r_, g_, b_, spd_;
-  int matched = sscanf(s.c_str(), "{S %d %d %d %d %d}", 
-                       &pos_, &r_, &g_, &b_, &spd_);
-
-  if (matched == 5) {
-    sPos   = pos_;
-    sR     = r_;
-    sG     = g_;
-    sB     = b_;
-    sSpeed = spd_;
-
-    sValid = true;
-    lastFresh = millis();
-  }
-  else {
-    sValid = false;
-  }
-}
-
 void parseSlavePacket(String s) {
 
-  // FILTER 1 — must start and end correctly
-  if (!s.startsWith("{S ") || !s.endsWith("}")) {
-    return; // reject corrupted packet
+  if (!s.startsWith("{S") || !s.endsWith("}")) return;
+
+  // тіло: між "{S" і "}"
+  String body = s.substring(2, s.length() - 1);
+  body.trim();
+
+  // Забираємо все, що не цифра і не +
+  for (int i = 0; i < body.length(); i++) {
+    if (!isDigit(body[i])) body[i] = ' ';
   }
 
-  // FILTER 2 — reasonable packet length
-  if (s.length() < 10 || s.length() > 35) {
-    return;
-  }
+  body.trim();
 
-  // compact packet: {S POS R G B SPD}
-  int pos_, r_, g_, b_, spd_;
-  int matched = sscanf(s.c_str(), "{S %d %d %d %d %d}", 
-                       &pos_, &r_, &g_, &b_, &spd_);
+  // читаємо ОДНЕ число — POS
+  int pos_;
+  int matched = sscanf(body.c_str(), "%d", &pos_);
 
-  // FILTER 3 — must match exactly 5 ints
-  if (matched != 5) return;
-
-  // FILTER 4 — sanity ranges
+  if (matched != 1) return;
   if (pos_ < 0 || pos_ >= NUM_LEDS) return;
-  if (r_ < 0 || r_ > 255) return;
-  if (g_ < 0 || g_ > 255) return;
-  if (b_ < 0 || b_ > 255) return;
-  if (spd_ < 0 || spd_ > 255) return;
 
-  // Only now accept the packet:
-  sPos   = pos_;
-  sR     = r_;
-  sG     = g_;
-  sB     = b_;
-  sSpeed = spd_;
-
+  sPos = pos_;
   sValid = true;
   lastFresh = millis();
 }
 
 // -----------------------------------------------
 void sendWinToSlave() {
-  HC12.println("{M WIN:1}");
+  Serial.println("{M WIN:1}");
 }
 
 // -----------------------------------------------
 bool checkWin() {
-if (!sValid) return false;
+  if (!sValid) return false;
 
-// if no new data from slave in 120 ms — ignore it
-if (millis() - lastFresh > 400) return false;
+  // ignore outdated slave data
+  if (millis() - lastFresh > 400) return false;
 
-
-  // current raw RGB from master encoders
-  int myR = encs[0].value;
-  int myG = encs[1].value;
-  int myB = encs[2].value;
-
-  // --- SIMPLE RGB DIFFERENCE MATCHING ---
-  int dR = abs(myR - sR);
-  int dG = abs(myG - sG);
-  int dB = abs(myB - sB);
-
-  // total RGB difference
-  int rgbDiff = dR + dG + dB;
-
-  // allow win if total diff is small
-  bool colOK = (rgbDiff <= COL_TOL);
-
-  // --- position tolerance with ring wrap ---
   int dPos = abs(pos - sPos);
   if (dPos > NUM_LEDS / 2) dPos = NUM_LEDS - dPos;
   bool posOK = (dPos <= POS_TOL);
 
   static unsigned long stableSince = 0;
+  static int stableCount = 0;
 
-  if (posOK && colOK) {
+  if (posOK) {
     if (stableSince == 0) stableSince = millis();
-    // must remain stable for at least 500 ms
-    if (millis() - stableSince >= 500) {
+    stableCount++;
+
+    // потрібно 4 збіги + 500 мс справжньої стабільності
+    if (stableCount >= 4 && millis() - stableSince >= 500) {
       stableSince = 0;
-      // resend win command a few times for reliability
+      stableCount = 0;
       winRepeats = 3;
       return true;
     }
     return false;
   } else {
     stableSince = 0;
+    stableCount = 0;
     return false;
   }
 }
 
 // -----------------------------------------------
 void runPassive() {
-  FastLED.setBrightness(180);   // restore normal brightness
-  fill_solid(leds, NUM_LEDS, CRGB(encs[0].value, encs[1].value, encs[2].value));
+int br = map(encs[3].value, 0, 255, 10, 255);
+FastLED.setBrightness(br);
+
+fill_solid(leds, NUM_LEDS, CRGB(encs[0].value, encs[1].value, encs[2].value));
 }
 
 // -----------------------------------------------
@@ -267,52 +219,53 @@ void runWin() {
 
   uint8_t hue = (now / 5) & 255;
   fill_solid(leds, NUM_LEDS, CHSV(hue, 255, 255));
+  FastLED.show();
+}
+
+void readHC12() {
+    static bool inPacket = false;
+    static String packet = "";
+
+    while (Serial.available()) {
+        char c = Serial.read();
+
+        // start of packet
+        if (c == '{') {
+            inPacket = true;
+            packet = "{";
+            continue;
+        }
+
+        // accumulating packet
+        if (inPacket) {
+            packet += c;
+
+            // end of packet
+            if (c == '#') {
+
+                // fully clean packet from extra characters
+                packet.replace("#", "");
+                packet.replace("\r", "");
+                packet.replace("\n", "");
+                packet.trim();
+
+                // packet must end with '}'
+                if (packet.endsWith("}")) {
+                    lastRawPacket = packet;
+                    parseSlavePacket(packet);
+                }
+
+                // fully reset
+                inPacket = false;
+                packet = "";
+            }
+        }
+    }
 }
 
 // -----------------------------------------------
 void loop() {
-  // ---- HC12 receive — more stable reading with filtering ----
-  static String rxBuf = "";
-
-  while (HC12.available()) {
-      char c = HC12.read();
-
-      // Flush noise: skip chars outside printable ASCII except allowed special chars
-      if ( (c < 32 || c > 126) && c != '{' && c != '}' && c != ' ' && !(c >= '0' && c <= '9') ) {
-        continue;
-      }
-
-      // Reset buffer if corrupted sequence appears (if buffer not empty and c not valid start/end char)
-      if (rxBuf.length() > 0) {
-        if (c != '{' && c != '}' && c != ' ' && !(c >= '0' && c <= '9')) {
-          rxBuf = "";
-          continue;
-        }
-      }
-
-      if (c == '\r') continue;
-
-      if (c == '\n') {
-          if (rxBuf.length() > 0) {
-            // Only accept packets starting with "{S" and ending with "}"
-            if (rxBuf.startsWith("{S") && rxBuf.endsWith("}")) {
-              Serial.print("HC12 RAW: ");
-              Serial.println(rxBuf);
-              parseSlavePacket(rxBuf);
-            }
-          }
-          rxBuf = "";
-      } else {
-          // Accept only printable ASCII chars from space(32) to tilde(126)
-          if (c >= 32 && c <= 126) {
-            rxBuf += c;
-            if (rxBuf.length() > 50) rxBuf = "";
-          } else {
-            // Non printable char, reset buffer
-            rxBuf = "";
-          }
-      }
-  }
+  readHC12();
 
   if (winRepeats > 0 && millis() - lastWinSend >= 10) {
     sendWinToSlave();
@@ -320,6 +273,19 @@ void loop() {
     lastWinSend = millis();
   }
 
+  // Periodic send to HC12 every 500ms
+  static unsigned long lastHCSend = 0;
+  unsigned long now = millis();
+  if (now - lastHCSend >= 500) {
+    Serial.print("{DBG M_POS:");
+    Serial.print(pos);
+    // RGB ignored in pos-only mode
+    Serial.print(" S_POS:");
+    Serial.print(sPos);
+    // no color debug in pos-only mode
+    Serial.println("}");
+    lastHCSend = now;
+  }
 
   // ---- High-frequency encoder polling (every 2 ms) ----
   static unsigned long lastEnc = 0;
@@ -377,6 +343,7 @@ void loop() {
 
   if (win) {
     runWin();
+    FastLED.show();
     return;
   }
 

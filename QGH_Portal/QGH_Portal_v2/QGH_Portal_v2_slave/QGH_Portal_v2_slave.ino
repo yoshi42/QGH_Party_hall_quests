@@ -102,27 +102,15 @@ void sendStateToMaster() {
   static unsigned long lastTx = 0;
   unsigned long now = millis();
 
-  int R = encs[0].value;
-  int G = encs[1].value;
-  int B = encs[2].value;
-  int speed = map(encs[3].value, 0, 255, 0, 20);
-
-  if (now - lastTx < 250) return;   // fixed 100ms TX interval
+  if (now - lastTx < 350) return;   // fixed TX interval
   lastTx = now;
 
-    String out = "{S ";
-    out += pos;
-    out += " ";
-    out += R;
-    out += " ";
-    out += G;
-    out += " ";
-    out += B;
-    out += " ";
-    out += speed;
-    out += "}";
+  String out = "{S ";
+  out += pos;
+  out += "}";
+  out += "#";
 
-    HC12.println(out);
+  HC12.println(out);
 }
 
 // -----------------------------------------------
