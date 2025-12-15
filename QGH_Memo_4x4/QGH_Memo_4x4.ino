@@ -1,5 +1,8 @@
 #define FASTLED_NO_FRAMEBUFFER
 #include <FastLED.h>
+#include <DFRobotDFPlayerMini.h>
+
+DFRobotDFPlayerMini dfPlayer;
 
 // ================= LED CONFIG =================
 #define SEGMENT_LEDS 38
@@ -141,6 +144,8 @@ void restartPuzzle(){
 
 // ==== correct press ====
 void handleCorrect(int seg){
+  dfPlayer.playFolder(1, 2);
+  // delay(50);  // removed per instructions
   // light all correct ones so far
   for(int i=0;i<=stepIndex;i++){
     int s = buttonToSegment[ pgm_read_byte(&patterns[puzzleIndex][i]) ];
@@ -162,6 +167,8 @@ void handleCorrect(int seg){
       clearAll();
       delay(200);
     }
+      dfPlayer.playFolder(1, 1);
+      // delay(50);  // removed per instructions
     // next scenario
     puzzleIndex = (puzzleIndex + 1) % 12;
     restartPuzzle();
@@ -170,6 +177,8 @@ void handleCorrect(int seg){
 
 // ==== wrong press ====
 void handleWrong(int seg){
+  dfPlayer.playFolder(1, 3);
+  // delay(50);  // removed per instructions
   for(int k=0;k<3;k++){
     lightSegment(seg, currentColor);
     delay(250);
@@ -214,8 +223,11 @@ void processPuzzle(){
 
 // ================= SETUP =================
 void setup(){
-  Serial.begin(115200);
-  delay(200);
+Serial.begin(9600);                 // Hardware UART for DFPlayer
+dfPlayer.begin(Serial, false);      // disable ACK -> non-blocking
+dfPlayer.setTimeOut(200);            // safety timeout
+dfPlayer.volume(20);                 // 0..30
+delay(100);
 
   FastLED.addLeds<NEOPIXEL, PIN_G0>(leds0, GROUP_LEDS);
   FastLED.addLeds<NEOPIXEL, PIN_G1>(leds1, GROUP_LEDS);
