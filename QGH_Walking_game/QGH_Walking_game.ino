@@ -116,7 +116,7 @@ void setup() {
     while (true) delay(100);
   }
   Serial.println("✅ DFPlayer Mini online.");
-  dfPlayer.volume(10);  // Гучність (0-30)
+  dfPlayer.volume(25);  // Гучність (0-30)
   delay(500);
 }
 

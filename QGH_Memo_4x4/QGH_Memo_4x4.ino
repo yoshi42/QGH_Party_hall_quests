@@ -156,7 +156,8 @@ void handleCorrect(int seg){
   stepIndex++;
 
   if(stepIndex >= 12){
-    // success: blink all, advance scenario
+    // success: blink all, advance scenario + audio
+    dfPlayer.playFolder(1, 1);
     for(int k=0;k<3;k++){
       fill_solid(leds0, GROUP_LEDS, currentColor);
       fill_solid(leds1, GROUP_LEDS, currentColor);
@@ -167,8 +168,7 @@ void handleCorrect(int seg){
       clearAll();
       delay(200);
     }
-      dfPlayer.playFolder(1, 1);
-      // delay(50);  // removed per instructions
+      delay(5000);  // removed per instructions
     // next scenario
     puzzleIndex = (puzzleIndex + 1) % 12;
     restartPuzzle();
