@@ -83,10 +83,12 @@ void loop() {
 
     if (isCodeInList(code, RF_ON_CODES, NUM_RF_ON_CODES)) {
       Serial.println("→ Розпізнано код ВКЛ");
+      delay(500);
       activateSystem();
     }
-    else if (isCodeInList(code, RF_OFF_CODES, NUM_RF_OFF_CODES)) {
+    if (isCodeInList(code, RF_OFF_CODES, NUM_RF_OFF_CODES)) {
       Serial.println("→ Розпізнано код ВИКЛ");
+      delay(500);
       deactivateSystem();
     }
     else {

@@ -1,6 +1,17 @@
 #include <FastLED.h>
-
 #define HC12 Serial
+
+/*/IMPORTANT//
+FOR MASTER AND SLAVE HC-12 ARE SET TO C006 Channel to avoid interference with other devices
+to change channel:
+
+Connect GND+SET pins
+Set 9600 baud
+send commands to serial
+AT - AT mode
+AT+RX - to check current speed
+AT+C006 - to set channel
+*/
 
 // ---------------- LED CONFIG -------------------
 #define LED_PIN 3
@@ -273,7 +284,8 @@ void loop() {
     lastWinSend = millis();
   }
 
-  // Periodic send to HC12 every 500ms
+  /*// 
+  Periodic send to HC12 every 500ms
   static unsigned long lastHCSend = 0;
   unsigned long now = millis();
   if (now - lastHCSend >= 500) {
@@ -285,7 +297,8 @@ void loop() {
     // no color debug in pos-only mode
     Serial.println("}");
     lastHCSend = now;
-  }
+  } 
+  *///
 
   // ---- High-frequency encoder polling (every 2 ms) ----
   static unsigned long lastEnc = 0;

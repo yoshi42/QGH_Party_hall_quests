@@ -1,6 +1,18 @@
 #include <FastLED.h>
 #include <SoftwareSerial.h>
 
+/*/IMPORTANT//
+FOR MASTER AND SLAVE HC-12 ARE SET TO C006 Channel to avoid interference with other devices
+to change channel:
+
+Connect GND+SET pins
+Set 9600 baud
+send commands to serial
+AT - AT mode
+AT+RX - to check current speed
+AT+C006 - to set channel
+*/
+
 // ---------------- LED CONFIG -------------------
 #define LED_PIN 3
 #define NUM_LEDS 216
@@ -37,7 +49,7 @@ unsigned long lastDebug = 0;
 
 // -----------------------------------------------
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   HC12.begin(9600);
 
   FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
