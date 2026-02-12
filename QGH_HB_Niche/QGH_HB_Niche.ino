@@ -9,6 +9,8 @@
 
 // --- Підключення бібліотеки --- //
 #include <RCSwitch.h>
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
 
 // --- Налаштування пінів --- //
 #define RELAY1 8   // Замок 1 (NC)
@@ -23,6 +25,14 @@
 
 // --- Ініціалізація об’єкта пульта --- //
 RCSwitch mySwitch = RCSwitch();
+
+// --- DFPlayer --- //
+#define DF_RX 11   // Arduino RX  (підключено до TX DFPlayer)
+#define DF_TX 12   // Arduino TX  (підключено до RX DFPlayer)
+
+SoftwareSerial dfSerial(DF_RX, DF_TX);
+DFRobotDFPlayerMini dfPlayer;
+bool dfReady = false;
 
 // --- Параметри --- //
 const unsigned long unlockDelay = 5000; // затримка між замками, мс
@@ -49,6 +59,19 @@ void setup() {
   Serial.begin(9600);
   Serial.println("=== Happy Birthday Niche ===");
   Serial.println("Очікування сигналів пульта...");
+
+  // --- DFPlayer init --- //
+dfSerial.begin(9600);
+
+if (dfPlayer.begin(dfSerial, false)) {   // без ACK (non-blocking)
+  dfPlayer.setTimeOut(200);
+  dfPlayer.volume(20);                  // 0..30
+  delay(100);
+  dfReady = true;
+  Serial.println("DFPlayer OK");
+} else {
+  Serial.println("DFPlayer FAIL");
+}
 
   // Ініціалізація реле
   pinMode(RELAY1, OUTPUT);
@@ -117,6 +140,9 @@ void activateSystem() {
 
   digitalWrite(RELAY1, HIGH); // розімкнути замок 1
   digitalWrite(RELAY3, LOW); // увімкнути підсвітку
+  if (dfReady) {
+  dfPlayer.play(1);   // грає файл 0001.mp3
+}
   delay(unlockDelay);
   digitalWrite(RELAY2, HIGH); // розімкнути замок 2
   digitalWrite(RELAY4, LOW); // розімкнути резерв
@@ -125,8 +151,11 @@ void activateSystem() {
 void deactivateSystem() {
   if (!systemActive) return;
   systemActive = false;
-
   Serial.println("System DEACTIVATED");
+
+  if (dfReady) {
+  dfPlayer.stop();
+}
 
   resetRelays();
 }
